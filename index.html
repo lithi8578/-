@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>幾何光學透鏡模擬器</title>
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        margin: 0;
+        background: #111;
+        color: white;
+        font-family: sans-serif;
+        overflow: hidden;
+    }
+
+    #ui {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+
+        width: 320px;
+
+        background: rgba(0,0,0,0.75);
+        padding: 14px;
+        border-radius: 12px;
+
+        z-index: 100;
+    }
+
+    .group {
+        margin-bottom: 12px;
+    }
+
+    label {
+        display: block;
+        margin-bottom: 4px;
+    }
+
+    input[type=range] {
+        width: 100%;
+    }
+
+    canvas {
+        display: block;
+    }
+
+    .value {
+        color: #7dffb3;
+    }
+
+    .title {
+        font-size: 20px;
+        margin-bottom: 12px;
+        font-weight: bold;
+    }
+
+    .info {
+        margin-top: 10px;
+        line-height: 1.5;
+        font-size: 14px;
+    }
+
+    select {
+        width: 100%;
+        padding: 6px;
+    }
+</style>
+</head>
+<body>
+
+<div id="ui">
+
+    <div class="title">
+        幾何光學透鏡模擬器
+    </div>
+
+    <div class="group">
+        <label>透鏡類型</label>
+
+        <select id="lensType">
+            <option value="convex">凸透鏡</option>
+            <option value="concave">凹透鏡</option>
+        </select>
+    </div>
+
+    <div class="group">
+        <label>
+            焦距 f :
+            <span class="value" id="fValue"></span>
+        </label>
+
+        <input
+            type="range"
+            id="fSlider"
+            min="40"
+            max="300"
+            value="120"
+        >
+    </div>
+
+    <div class="group">
+        <label>
+            物距 do :
+            <span class="value" id="doValue"></span>
+        </label>
+
+        <input
+            type="range"
+            id="doSlider"
+            min="20"
+            max="500"
+            value="240"
+        >
+    </div>
+
+    <div class="group">
+        <label>
+            物體速度 :
+            <span class="value" id="velocityValue"></span>
+        </label>
+
+        <input
+            type="range"
+            id="velocitySlider"
+            min="-200"
+            max="200"
+            value="0"
+        >
+    </div>
+
+    <div class="info" id="infoBox"></div>
+
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+
+resizeCanvas();
+
+window.addEventListener("resize", resizeCanvas);
+
+const lensTypeSelect = document.getElementById("lensType");
+
+const fSlider = document.getElementById("fSlider");
+const doSlider = document.getElementById("doSlider");
+const velocitySlider = document.getElementById("velocitySlider");
+
+const fValue = document.getElementById("fValue");
+const doValue = document.getElementById("doValue");
+const velocityValue = document.getElementById("velocityValue");
+
+const infoBox = document.getElementById("infoBox");
+
+const state = {
+    lensType: "convex",
+
+    f: 120,
+    do_: 240,
+
+    ho: 120,
+
+    velocity: 0
+};
+
+function updateUIValues() {
+    fValue.textContent = state.f.toFixed(0);
+    doValue.textContent = state.do_.toFixed(0);
+    velocityValue.textContent = state.velocity.toFixed(0);
+}
+
+updateUIValues();
+
+lensTypeSelect.addEventListener("change", () => {
+    state.lensType = lensTypeSelect.value;
+});
+
+fSlider.addEventListener("input", () => {
+    state.f = Number(fSlider.value);
+    updateUIValues();
+});
+
+doSlider.addEventListener("input", () => {
+    state.do_ = Number(doSlider.value);
+    updateUIValues();
+});
+
+velocitySlider.addEventListener("input", () => {
+    state.velocity = Number(velocitySlider.value);
+    updateUIValues();
+});
+
+function signedFocalLength() {
+    return state.lensType === "convex"
+        ? state.f
+        : -state.f;
+}
+
+function computeImageDistance(f, do_) {
+
+    const eps = 0.0001;
+
+    if (Math.abs(do_ - f) < eps) {
+        return 999999;
+    }
+
+    return (f * do_) / (do_ - f);
+}
+
+function computeMagnification(di, do_) {
+    return -di / do_;
+}
+
+function drawAxis(axisY) {
+
+    ctx.strokeStyle = "#666";
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.moveTo(0, axisY);
+    ctx.lineTo(canvas.width, axisY);
+    ctx.stroke();
+}
+
+function drawLens(lensX, axisY) {
+
+    ctx.strokeStyle = "#58a6ff";
+    ctx.lineWidth = 4;
+
+    ctx.beginPath();
+    ctx.moveTo(lensX, axisY - 180);
+    ctx.lineTo(lensX, axisY + 180);
+    ctx.stroke();
+
+    if (state.lensType === "convex") {
+
+        drawArrow(lensX, axisY - 180, 0, -1);
+        drawArrow(lensX, axisY + 180, 0, 1);
+
+    } else {
+
+        drawArrow(lensX, axisY - 180, 0, 1);
+        drawArrow(lensX, axisY + 180, 0, -1);
+    }
+}
+
+function drawArrow(x, y, dx, dy) {
+
+    const size = 14;
+
+    ctx.beginPath();
+
+    ctx.moveTo(x, y);
+
+    ctx.lineTo(
+        x - dy * size - dx * size,
+        y + dx * size - dy * size
+    );
+
+    ctx.lineTo(
+        x + dy * size - dx * size,
+        y - dx * size - dy * size
+    );
+
+    ctx.closePath();
+
+    ctx.fillStyle = "#58a6ff";
+    ctx.fill();
+}
+
+function drawFocalPoints(lensX, axisY, f) {
+
+    const leftF = lensX - Math.abs(f);
+    const rightF = lensX + Math.abs(f);
+
+    const left2F = lensX - 2 * Math.abs(f);
+    const right2F = lensX + 2 * Math.abs(f);
+
+    ctx.fillStyle = "#ffcc00";
+
+    drawPoint(leftF, axisY, "F");
+    drawPoint(rightF, axisY, "F");
+
+    drawPoint(left2F, axisY, "2F");
+    drawPoint(right2F, axisY, "2F");
+}
+
+function drawPoint(x, y, label) {
+
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "white";
+    ctx.font = "16px sans-serif";
+    ctx.fillText(label, x - 10, y + 24);
+
+    ctx.fillStyle = "#ffcc00";
+}
+
+function drawObject(x, axisY, h, color="#ffffff") {
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+
+    ctx.beginPath();
+    ctx.moveTo(x, axisY);
+    ctx.lineTo(x, axisY - h);
+    ctx.stroke();
+
+    drawArrow(x, axisY - h, 0, -1);
+}
+
+function drawImage(x, axisY, h, isVirtual) {
+
+    ctx.save();
+
+    if (isVirtual) {
+        ctx.setLineDash([8,8]);
+        ctx.strokeStyle = "#ff9955";
+    } else {
+        ctx.strokeStyle = "#7dffb3";
+    }
+
+    ctx.lineWidth = 4;
+
+    ctx.beginPath();
+    ctx.moveTo(x, axisY);
+    ctx.lineTo(x, axisY - h);
+    ctx.stroke();
+
+    drawArrow(
+        x,
+        axisY - h,
+        0,
+        h > 0 ? -1 : 1
+    );
+
+    ctx.restore();
+}
+
+function line(x1, y1, x2, y2, style="#ffffff", dash=[]) {
+
+    ctx.save();
+
+    ctx.strokeStyle = style;
+    ctx.setLineDash(dash);
+
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+function drawRays(
+    objectX,
+    objectTopY,
+    lensX,
+    axisY,
+    imageX,
+    imageTopY,
+    f
+) {
+
+    const leftF = lensX - Math.abs(f);
+    const rightF = lensX + Math.abs(f);
+
+    const isConvex = state.lensType === "convex";
+
+    // =========================
+    // 光線1：通過鏡心
+    // =========================
+
+    line(
+        objectX,
+        objectTopY,
+        imageX,
+        imageTopY,
+        "#ffffff"
+    );
+
+    // =========================
+    // 光線2：平行主軸
+    // =========================
+
+    line(
+        objectX,
+        objectTopY,
+        lensX,
+        objectTopY,
+        "#ff5555"
+    );
+
+    if (isConvex) {
+
+        line(
+            lensX,
+            objectTopY,
+            imageX,
+            imageTopY,
+            "#ff5555"
+        );
+
+    } else {
+
+        line(
+            lensX,
+            objectTopY,
+            imageX,
+            imageTopY,
+            "#ff5555"
+        );
+
+        line(
+            lensX,
+            objectTopY,
+            leftF,
+            axisY,
+            "#ff5555",
+            [6,6]
+        );
+    }
+
+    // =========================
+    // 光線3：通過焦點
+    // =========================
+
+    if (isConvex) {
+
+        line(
+            objectX,
+            objectTopY,
+            lensX,
+            axisY,
+            "#55ff55"
+        );
+
+        line(
+            lensX,
+            axisY,
+            imageX,
+            axisY,
+            "#55ff55"
+        );
+
+    } else {
+
+        line(
+            objectX,
+            objectTopY,
+            lensX,
+            axisY,
+            "#55ff55"
+        );
+
+        line(
+            lensX,
+            axisY,
+            imageX,
+            imageTopY,
+            "#55ff55"
+        );
+
+        line(
+            lensX,
+            axisY,
+            leftF,
+            axisY,
+            "#55ff55",
+            [6,6]
+        );
+    }
+}
+
+function updateInfo(di, m, hi) {
+
+    const isReal = di > 0;
+
+    let type = isReal ? "實像" : "虛像";
+
+    let orientation =
+        hi > 0 ? "正立" : "倒立";
+
+    let size =
+        Math.abs(m) > 1
+            ? "放大"
+            : Math.abs(m) < 1
+                ? "縮小"
+                : "等大";
+
+    infoBox.innerHTML = `
+        像距 di = ${di.toFixed(2)}<br>
+        放大率 m = ${m.toFixed(2)}<br>
+        像高 hi = ${hi.toFixed(2)}<br>
+        類型 = ${type}<br>
+        性質 = ${orientation} / ${size}
+    `;
+}
+
+let lastTime = performance.now();
+
+function animate(now) {
+
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
+
+    state.do_ += state.velocity * dt;
+
+    state.do_ = Math.max(20, state.do_);
+    state.do_ = Math.min(1000, state.do_);
+
+    doSlider.value = state.do_;
+    updateUIValues();
+
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    const lensX = canvas.width / 2;
+    const axisY = canvas.height / 2;
+
+    drawAxis(axisY);
+
+    drawLens(lensX, axisY);
+
+    const f = signedFocalLength();
+
+    drawFocalPoints(lensX, axisY, f);
+
+    const do_ = state.do_;
+
+    const di = computeImageDistance(f, do_);
+
+    const m = computeMagnification(di, do_);
+
+    const hi = m * state.ho;
+
+    const objectX = lensX - do_;
+    const imageX = lensX + di;
+
+    const objectTopY = axisY - state.ho;
+    const imageTopY = axisY - hi;
+
+    drawObject(
+        objectX,
+        axisY,
+        state.ho
+    );
+
+    drawImage(
+        imageX,
+        axisY,
+        hi,
+        di < 0
+    );
+
+    drawRays(
+        objectX,
+        objectTopY,
+        lensX,
+        axisY,
+        imageX,
+        imageTopY,
+        f
+    );
+
+    updateInfo(di, m, hi);
+
+    requestAnimationFrame(animate);
+}
+
+requestAnimationFrame(animate);
+
+</script>
+</body>
+</html>
